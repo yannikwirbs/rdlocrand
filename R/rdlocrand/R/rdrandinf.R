@@ -134,9 +134,6 @@ rdrandinf <- function(Y,R,
 
   randmech <- 'fixed margins'
 
-  message(sprintf('[MEM] rdrandinf entry: Y=%.1fMB R=%.1fMB | gc_vcells=%.1fMB',
-    object.size(Y)/1e6, object.size(R)/1e6, gc(verbose=FALSE)[2,2]))
-
   if (is.null(wl) && is.null(wr) && !missing(covariates)) {
     Rc.long <- R - cutoff
   }
@@ -182,9 +179,6 @@ rdrandinf <- function(Y,R,
     }
 
   }
-
-  message(sprintf('[MEM] after NA filter: Y=%.1fMB R=%.1fMB n=%d | gc_vcells=%.1fMB',
-    object.size(Y)/1e6, object.size(R)/1e6, length(R), gc(verbose=FALSE)[2,2]))
 
   if (cutoff<min(R,na.rm=TRUE) | cutoff>max(R,na.rm=TRUE)) stop('Cutoff must be within the range of the running variable')
   if (p<0) stop('p must be a positive integer')
@@ -250,9 +244,6 @@ rdrandinf <- function(Y,R,
     }
   }
   if (quietly==FALSE) cat(paste0('\nSelected window = [',round(wl,3),';',round(wr,3),'] \n'))
-  message(sprintf('[MEM] after window selection: wl=%.4f wr=%.4f | gc_vcells=%.1fMB',
-    wl, wr, gc(verbose=FALSE)[2,2]))
-
 
   if (!is.null(evall)&!is.null(evalr)){if (evall<wl | evalr>wr){stop('evall and evalr need to be inside window')}}
 
@@ -288,9 +279,6 @@ rdrandinf <- function(Y,R,
   n.w <- length(Dw)
   n1.w <- sum(Dw)
   n0.w <- n.w - n1.w
-
-  message(sprintf('[MEM] after window subset: Yw=%.1fMB Rw=%.1fMB Dw=%.1fMB n.w=%d | gc_vcells=%.1fMB',
-    object.size(Yw)/1e6, object.size(Rw)/1e6, object.size(Dw)/1e6, n.w, gc(verbose=FALSE)[2,2]))
 
 
   ###############################################################################
@@ -363,30 +351,21 @@ rdrandinf <- function(Y,R,
     Y.adj.null <- Y.adj - nulltau*Tw
   }
 
-  message(sprintf('[MEM] after outcome adjustment: Y.adj.null=%.1fMB%s | gc_vcells=%.1fMB',
-    object.size(Y.adj.null)/1e6,
-    if (p>0) sprintf(' Rpoly=%.1fMB', object.size(Rpoly)/1e6) else '',
-    gc(verbose=FALSE)[2,2]))
-
 
   ###############################################################################
   # Observed statistics and asymptotic p-values
   ###############################################################################
 
 
-  message(sprintf('[MEM] calling rdrandinf.model (pvalue=TRUE, statistic=%s) | gc_vcells=%.1fMB', statistic, gc(verbose=FALSE)[2,2]))
   if (is.null(fuzzy)){
     results <- rdrandinf.model(Y.adj.null,Dw,statistic=statistic,pvalue=TRUE,kweights=kweights,delta=delta)
   } else {
     results <- rdrandinf.model(Y.adj.null,Dw,statistic=fuzzy.stat,endogtr=Tw,pvalue=TRUE,kweights=kweights,delta=delta)
   }
-  message(sprintf('[MEM] rdrandinf.model returned | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
-
   obs.stat <- as.numeric(results$statistic)
 
   if (p==0){
     if (fuzzy.stat=='wald'){
-      message(sprintf('[MEM] p==0, wald: computing IV manually (O(nk) memory) | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
       firststagereg <- lm(Tw ~ Dw)
       # Manual 2SLS + HC1 SE: avoids AER::ivreg/sandwich::vcovHC which can
       # allocate an n x n hat matrix (95 GB at n=107949).
@@ -404,7 +383,6 @@ rdrandinf <- function(Y,R,
       k_iv     <- 2L
       V_HC1_iv <- (n.w / (n.w - k_iv)) * (B_iv %*% Meat_iv %*% t(B_iv))
       se       <- sqrt(V_HC1_iv[2L, 2L])
-      message(sprintf('[MEM] p==0, wald: IV done | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
       ci.lb <- obs.stat - 1.96*se
       ci.ub <- obs.stat + 1.96*se
       tstat <- obs.stat/se
@@ -417,11 +395,8 @@ rdrandinf <- function(Y,R,
 
   } else {
     if (statistic=='diffmeans'|statistic=='ttest'|statistic=='all'){
-      message(sprintf('[MEM] p>0, diffmeans: calling lm (n.w=%d, ncol(Rpoly)=%d) | gc_vcells=%.1fMB', n.w, ncol(Rpoly), gc(verbose=FALSE)[2,2]))
       lfit <- lm(Yw ~ Dw + Rpoly + Dw*Rpoly,weights=kweights)
-      message(sprintf('[MEM] lm done: lfit=%.1fMB | gc_vcells=%.1fMB', object.size(lfit)/1e6, gc(verbose=FALSE)[2,2]))
       se <- sqrt(diag(sandwich::vcovHC(lfit,type='HC2'))['Dw'])
-      message(sprintf('[MEM] vcovHC done | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
       tstat <- lfit$coefficients['Dw']/se
       asy.pval <- as.numeric(2*pnorm(-abs(tstat)))
       asy.power <- as.numeric(1-pnorm(1.96-delta/se)+pnorm(-1.96-delta/se))
@@ -436,11 +411,8 @@ rdrandinf <- function(Y,R,
     }
 
     if (fuzzy.stat=='wald'){
-      message(sprintf('[MEM] p>0, wald: computing inter | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
       inter <- Rpoly*Dw
-      message(sprintf('[MEM] p>0, wald: inter=%.1fMB ncol=%d | gc_vcells=%.1fMB', object.size(inter)/1e6, ncol(as.matrix(inter)), gc(verbose=FALSE)[2,2]))
       firststagereg <- lm(Tw ~ Dw)
-      message(sprintf('[MEM] p>0, wald: computing IV manually (O(nk) memory, n.w=%d) | gc_vcells=%.1fMB', n.w, gc(verbose=FALSE)[2,2]))
       # Manual 2SLS + HC1 SE: avoids AER::ivreg/sandwich::vcovHC which can
       # allocate an n x n hat matrix (95 GB at n=107949).
       # For just-identified IV: beta = (Z'WX)^{-1} Z'WY
@@ -457,7 +429,6 @@ rdrandinf <- function(Y,R,
       Meat_iv  <- crossprod(Z_iv * (w_iv * as.numeric(e_iv)))
       V_HC1_iv <- (n.w / (n.w - k_iv)) * (B_iv %*% Meat_iv %*% t(B_iv))
       se       <- sqrt(V_HC1_iv[k_iv, k_iv])
-      message(sprintf('[MEM] p>0, wald: IV done | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
       ci.lb <- obs.stat - 1.96*se
       ci.ub <- obs.stat + 1.96*se
       tstat <- obs.stat/se
@@ -465,8 +436,6 @@ rdrandinf <- function(Y,R,
       asy.power <- as.numeric(1-pnorm(1.96-delta/se)+pnorm(-1.96-delta/se))
     }
   }
-  message(sprintf('[MEM] observed stats done | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
-
 
   ###############################################################################
   # Randomization-based inference
@@ -480,8 +449,6 @@ rdrandinf <- function(Y,R,
   }
 
   if (quietly==FALSE){cat('\nRunning randomization-based test...\n')}
-  message(sprintf('[MEM] before permutation loop: stats.distr=%.1fMB | gc_vcells=%.1fMB',
-    object.size(stats.distr)/1e6, gc(verbose=FALSE)[2,2]))
 
   if (fuzzy.stat!='wald'){
 
@@ -527,10 +494,6 @@ rdrandinf <- function(Y,R,
             obs.stat.sample <- as.numeric(rdrandinf.model(Y.adj.null,D.sample,statistic=fuzzy.stat,endogtr=Tw,kweights=kweights,delta=delta)$statistic)
           }
           stats.distr[i,] <- obs.stat.sample
-          if (i <= 3 || i %% 100 == 0) {
-            message(sprintf('[MEM] perm iter %d: D.sample=%.1fMB | gc_vcells=%.1fMB',
-              i, object.size(D.sample)/1e6, gc(verbose=FALSE)[2,2]))
-          }
         }
       }
 
@@ -561,17 +524,10 @@ rdrandinf <- function(Y,R,
             obs.stat.sample <- as.numeric(rdrandinf.model(Y.adj.null,D.sample,statistic,kweights=kweights,delta=delta)$statistic)
             stats.distr[i,] <- obs.stat.sample
           }
-          if (i <= 3 || i %% 100 == 0) {
-            message(sprintf('[MEM] perm iter %d: D.sample=%.1fMB | gc_vcells=%.1fMB',
-              i, object.size(D.sample)/1e6, gc(verbose=FALSE)[2,2]))
-          }
         }
       }
 
     }
-
-    message(sprintf('[MEM] after permutation loop: stats.distr=%.1fMB | gc_vcells=%.1fMB',
-      object.size(stats.distr)/1e6, gc(verbose=FALSE)[2,2]))
     if(quietly==FALSE) cat('Randomization-based test complete. \n')
 
     if (statistic == 'all'){
