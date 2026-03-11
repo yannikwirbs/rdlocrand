@@ -528,6 +528,7 @@ rdrandinf <- function(Y,R,
     ci.alpha <- ci[1]
     if (fuzzy.stat!='wald'){
 
+      Rc <- R - cutoff
       wr_c <- wr - cutoff
       wl_c <- wl - cutoff
 
