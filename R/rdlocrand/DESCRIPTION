@@ -15,6 +15,8 @@ Description: The regression discontinuity (RD) design is a popular quasi-experim
 Imports:
   AER,
   sandwich
+Suggests:
+  parallel
 Depends: R (>= 3.1)
 License: GPL-2
 Encoding: UTF-8

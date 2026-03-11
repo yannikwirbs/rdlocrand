@@ -43,6 +43,7 @@
 #' @param bernoulli the probabilities of treatment for each unit when assignment mechanism is a Bernoulli trial. This option should be specified as a vector of length equal to the length of the outcome and running variables.
 #' @param reps the number of replications (default is 1000).
 #' @param seed the seed to be used for the randomization test.
+#' @param cores the number of cores to use for parallel execution of the permutation loop. Default is 1 (sequential). Requires the \code{parallel} package (included with R).
 #' @param quietly suppresses the output table.
 #' @param covariates the covariates used by \code{rdwinselect} to choose the window when \code{wl} and \code{wr} are not specified. This should be a matrix of size n x k where n is the total sample size and k is the number of covariates.
 #' @param obsmin the minimum number of observations above and below the cutoff in the smallest window employed by the companion command \code{rdwinselect}. Default is 10.
@@ -107,6 +108,7 @@ rdrandinf <- function(Y,R,
                       bernoulli = NULL,
                       reps = 1000,
                       seed = 666,
+                      cores = 1,
                       quietly = FALSE,
                       covariates,
                       obsmin = NULL,
@@ -429,6 +431,15 @@ rdrandinf <- function(Y,R,
   if (quietly==FALSE){cat('\nRunning randomization-based test...\n')}
 
   if (fuzzy.stat!='wald'){
+
+    if (cores > 1) {
+      cl <- parallel::makeCluster(cores)
+      on.exit(parallel::stopCluster(cl), add = TRUE)
+      parallel::clusterSetRNGStream(cl, seed)
+      parallel::clusterExport(cl, varlist = 'rdrandinf.model',
+                              envir = environment(rdrandinf.model))
+    }
+
     if (is.null(bernoulli)){
 
       max.reps <- choose(n.w,n1.w)
@@ -437,25 +448,62 @@ rdrandinf <- function(Y,R,
         warning(paste0('Chosen no. of reps > total no. of permutations.\n reps set to ',reps,'.'))
       }
 
-      for (i in 1:reps) {
-        D.sample <- sample(Dw,replace=FALSE)
-        if (is.null(fuzzy)){
-          obs.stat.sample <- as.numeric(rdrandinf.model(Y.adj.null,D.sample,statistic,kweights=kweights,delta=delta)$statistic)
-        } else {
-          obs.stat.sample <- as.numeric(rdrandinf.model(Y.adj.null,D.sample,statistic=fuzzy.stat,endogtr=Tw,kweights=kweights,delta=delta)$statistic)
+      if (cores > 1) {
+        is_fuzzy <- !is.null(fuzzy)
+        results_list <- parallel::parLapply(
+          cl, seq_len(reps),
+          function(i, Y.adj.null, Dw, statistic, fuzzy.stat, kweights, delta, Tw, is_fuzzy) {
+            D.sample <- sample(Dw, replace = FALSE)
+            if (!is_fuzzy) {
+              as.numeric(rdrandinf.model(Y.adj.null, D.sample, statistic, kweights = kweights, delta = delta)$statistic)
+            } else {
+              as.numeric(rdrandinf.model(Y.adj.null, D.sample, statistic = fuzzy.stat, endogtr = Tw, kweights = kweights, delta = delta)$statistic)
+            }
+          },
+          Y.adj.null = Y.adj.null, Dw = Dw, statistic = statistic, fuzzy.stat = fuzzy.stat,
+          kweights = kweights, delta = delta,
+          Tw = if (!is.null(fuzzy)) Tw else NULL, is_fuzzy = is_fuzzy
+        )
+        for (i in seq_len(reps)) stats.distr[i, ] <- results_list[[i]]
+      } else {
+        for (i in 1:reps) {
+          D.sample <- sample(Dw,replace=FALSE)
+          if (is.null(fuzzy)){
+            obs.stat.sample <- as.numeric(rdrandinf.model(Y.adj.null,D.sample,statistic,kweights=kweights,delta=delta)$statistic)
+          } else {
+            obs.stat.sample <- as.numeric(rdrandinf.model(Y.adj.null,D.sample,statistic=fuzzy.stat,endogtr=Tw,kweights=kweights,delta=delta)$statistic)
+          }
+          stats.distr[i,] <- obs.stat.sample
         }
-        stats.distr[i,] <- obs.stat.sample
       }
 
     } else {
 
-      for (i in 1:reps) {
-        D.sample <- as.numeric(runif(n.w)<=Bew)
-        if (mean(D.sample)==1 | mean(D.sample)==0){
-          stats.distr[i,] <- NA # ignore cases where bernoulli assignment mechanism gives no treated or no controls
-        } else {
-          obs.stat.sample <- as.numeric(rdrandinf.model(Y.adj.null,D.sample,statistic,kweights=kweights,delta=delta)$statistic)
-          stats.distr[i,] <- obs.stat.sample
+      if (cores > 1) {
+        n_col <- ncol(stats.distr)
+        results_list <- parallel::parLapply(
+          cl, seq_len(reps),
+          function(i, Y.adj.null, Dw, statistic, kweights, delta, Bew, n.w, n_col) {
+            D.sample <- as.numeric(runif(n.w) <= Bew)
+            if (mean(D.sample) == 1 | mean(D.sample) == 0) {
+              rep(NA_real_, n_col)
+            } else {
+              as.numeric(rdrandinf.model(Y.adj.null, D.sample, statistic, kweights = kweights, delta = delta)$statistic)
+            }
+          },
+          Y.adj.null = Y.adj.null, Dw = Dw, statistic = statistic, kweights = kweights,
+          delta = delta, Bew = Bew, n.w = n.w, n_col = n_col
+        )
+        for (i in seq_len(reps)) stats.distr[i, ] <- results_list[[i]]
+      } else {
+        for (i in 1:reps) {
+          D.sample <- as.numeric(runif(n.w)<=Bew)
+          if (mean(D.sample)==1 | mean(D.sample)==0){
+            stats.distr[i,] <- NA # ignore cases where bernoulli assignment mechanism gives no treated or no controls
+          } else {
+            obs.stat.sample <- as.numeric(rdrandinf.model(Y.adj.null,D.sample,statistic,kweights=kweights,delta=delta)$statistic)
+            stats.distr[i,] <- obs.stat.sample
+          }
         }
       }
 
