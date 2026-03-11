@@ -422,12 +422,17 @@ rdrandinf <- function(Y,R,
     }
 
     if (fuzzy.stat=='wald'){
-      message(sprintf('[MEM] p>0, wald: calling ivreg | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
+      message(sprintf('[MEM] p>0, wald: computing inter | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
       inter <- Rpoly*Dw
+      message(sprintf('[MEM] p>0, wald: inter=%.1fMB ncol=%d | gc_vcells=%.1fMB', object.size(inter)/1e6, ncol(as.matrix(inter)), gc(verbose=FALSE)[2,2]))
       firststagereg <- lm(Tw ~ Dw)
+      message(sprintf('[MEM] p>0, wald: lm done, calling ivreg (n.w=%d ncol_Rpoly=%d) | gc_vcells=%.1fMB', n.w, ncol(as.matrix(Rpoly)), gc(verbose=FALSE)[2,2]))
       aux <- AER::ivreg(Yw ~ Rpoly + inter + Tw | Rpoly + inter + Dw,weights=kweights)
+      message(sprintf('[MEM] p>0, wald: ivreg done=%.1fMB | gc_vcells=%.1fMB', object.size(aux)/1e6, gc(verbose=FALSE)[2,2]))
       obs.stat <- aux$coefficients["Tw"]
+      message(sprintf('[MEM] p>0, wald: calling vcovHC | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
       se <- sqrt(diag(sandwich::vcovHC(aux,type='HC1'))['Tw'])
+      message(sprintf('[MEM] p>0, wald: vcovHC done | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
       ci.lb <- obs.stat - 1.96*se
       ci.ub <- obs.stat + 1.96*se
       tstat <- aux$coefficients['Tw']/se
