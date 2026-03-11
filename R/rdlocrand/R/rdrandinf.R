@@ -471,6 +471,7 @@ rdrandinf <- function(Y,R,
             obs.stat.sample <- as.numeric(rdrandinf.model(Y.adj.null,D.sample,statistic=fuzzy.stat,endogtr=Tw,kweights=kweights,delta=delta)$statistic)
           }
           stats.distr[i,] <- obs.stat.sample
+          if (i %% 100 == 0) gc(verbose=FALSE)
         }
       }
 
@@ -501,6 +502,7 @@ rdrandinf <- function(Y,R,
             obs.stat.sample <- as.numeric(rdrandinf.model(Y.adj.null,D.sample,statistic,kweights=kweights,delta=delta)$statistic)
             stats.distr[i,] <- obs.stat.sample
           }
+          if (i %% 100 == 0) gc(verbose=FALSE)
         }
       }
 
