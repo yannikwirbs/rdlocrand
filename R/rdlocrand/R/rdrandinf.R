@@ -134,6 +134,9 @@ rdrandinf <- function(Y,R,
 
   randmech <- 'fixed margins'
 
+  message(sprintf('[MEM] rdrandinf entry: Y=%.1fMB R=%.1fMB | gc_vcells=%.1fMB',
+    object.size(Y)/1e6, object.size(R)/1e6, gc(verbose=FALSE)[2,2]))
+
   if (is.null(wl) && is.null(wr) && !missing(covariates)) {
     Rc.long <- R - cutoff
   }
@@ -179,6 +182,9 @@ rdrandinf <- function(Y,R,
     }
 
   }
+
+  message(sprintf('[MEM] after NA filter: Y=%.1fMB R=%.1fMB n=%d | gc_vcells=%.1fMB',
+    object.size(Y)/1e6, object.size(R)/1e6, length(R), gc(verbose=FALSE)[2,2]))
 
   if (cutoff<min(R,na.rm=TRUE) | cutoff>max(R,na.rm=TRUE)) stop('Cutoff must be within the range of the running variable')
   if (p<0) stop('p must be a positive integer')
@@ -244,6 +250,8 @@ rdrandinf <- function(Y,R,
     }
   }
   if (quietly==FALSE) cat(paste0('\nSelected window = [',round(wl,3),';',round(wr,3),'] \n'))
+  message(sprintf('[MEM] after window selection: wl=%.4f wr=%.4f | gc_vcells=%.1fMB',
+    wl, wr, gc(verbose=FALSE)[2,2]))
 
 
   if (!is.null(evall)&!is.null(evalr)){if (evall<wl | evalr>wr){stop('evall and evalr need to be inside window')}}
@@ -280,6 +288,9 @@ rdrandinf <- function(Y,R,
   n.w <- length(Dw)
   n1.w <- sum(Dw)
   n0.w <- n.w - n1.w
+
+  message(sprintf('[MEM] after window subset: Yw=%.1fMB Rw=%.1fMB Dw=%.1fMB n.w=%d | gc_vcells=%.1fMB',
+    object.size(Yw)/1e6, object.size(Rw)/1e6, object.size(Dw)/1e6, n.w, gc(verbose=FALSE)[2,2]))
 
 
   ###############################################################################
@@ -351,6 +362,11 @@ rdrandinf <- function(Y,R,
   } else{
     Y.adj.null <- Y.adj - nulltau*Tw
   }
+
+  message(sprintf('[MEM] after outcome adjustment: Y.adj.null=%.1fMB%s | gc_vcells=%.1fMB',
+    object.size(Y.adj.null)/1e6,
+    if (p>0) sprintf(' Rpoly=%.1fMB', object.size(Rpoly)/1e6) else '',
+    gc(verbose=FALSE)[2,2]))
 
 
   ###############################################################################
@@ -426,6 +442,8 @@ rdrandinf <- function(Y,R,
   }
 
   if (quietly==FALSE){cat('\nRunning randomization-based test...\n')}
+  message(sprintf('[MEM] before permutation loop: stats.distr=%.1fMB | gc_vcells=%.1fMB',
+    object.size(stats.distr)/1e6, gc(verbose=FALSE)[2,2]))
 
   if (fuzzy.stat!='wald'){
 
@@ -471,7 +489,10 @@ rdrandinf <- function(Y,R,
             obs.stat.sample <- as.numeric(rdrandinf.model(Y.adj.null,D.sample,statistic=fuzzy.stat,endogtr=Tw,kweights=kweights,delta=delta)$statistic)
           }
           stats.distr[i,] <- obs.stat.sample
-          if (i %% 100 == 0) gc(verbose=FALSE)
+          if (i <= 3 || i %% 100 == 0) {
+            message(sprintf('[MEM] perm iter %d: D.sample=%.1fMB | gc_vcells=%.1fMB',
+              i, object.size(D.sample)/1e6, gc(verbose=FALSE)[2,2]))
+          }
         }
       }
 
@@ -502,12 +523,17 @@ rdrandinf <- function(Y,R,
             obs.stat.sample <- as.numeric(rdrandinf.model(Y.adj.null,D.sample,statistic,kweights=kweights,delta=delta)$statistic)
             stats.distr[i,] <- obs.stat.sample
           }
-          if (i %% 100 == 0) gc(verbose=FALSE)
+          if (i <= 3 || i %% 100 == 0) {
+            message(sprintf('[MEM] perm iter %d: D.sample=%.1fMB | gc_vcells=%.1fMB',
+              i, object.size(D.sample)/1e6, gc(verbose=FALSE)[2,2]))
+          }
         }
       }
 
     }
 
+    message(sprintf('[MEM] after permutation loop: stats.distr=%.1fMB | gc_vcells=%.1fMB',
+      object.size(stats.distr)/1e6, gc(verbose=FALSE)[2,2]))
     if(quietly==FALSE) cat('Randomization-based test complete. \n')
 
     if (statistic == 'all'){
