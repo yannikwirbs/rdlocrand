@@ -390,7 +390,8 @@ rdrandinf <- function(Y,R,
       firststagereg <- lm(Tw ~ Dw)
       aux <- AER::ivreg(Yw ~ Tw | Dw,weights=kweights)
       obs.stat <- aux$coefficients["Tw"]
-      se <- sqrt(diag(sandwich::vcovHC(aux,type='HC1'))['Tw'])
+      k_iv <- length(coef(aux))
+      se <- sqrt(sandwich::vcovHC(aux,type='HC0')['Tw','Tw'] * n.w / (n.w - k_iv))
       ci.lb <- obs.stat - 1.96*se
       ci.ub <- obs.stat + 1.96*se
       tstat <- aux$coefficients['Tw']/se
@@ -430,8 +431,9 @@ rdrandinf <- function(Y,R,
       aux <- AER::ivreg(Yw ~ Rpoly + inter + Tw | Rpoly + inter + Dw,weights=kweights)
       message(sprintf('[MEM] p>0, wald: ivreg done=%.1fMB | gc_vcells=%.1fMB', object.size(aux)/1e6, gc(verbose=FALSE)[2,2]))
       obs.stat <- aux$coefficients["Tw"]
-      message(sprintf('[MEM] p>0, wald: calling vcovHC | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
-      se <- sqrt(diag(sandwich::vcovHC(aux,type='HC1'))['Tw'])
+      message(sprintf('[MEM] p>0, wald: calling vcovHC (HC0+df correction, avoids hatvalues) | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
+      k_iv <- length(coef(aux))
+      se <- sqrt(sandwich::vcovHC(aux,type='HC0')['Tw','Tw'] * n.w / (n.w - k_iv))
       message(sprintf('[MEM] p>0, wald: vcovHC done | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
       ci.lb <- obs.stat - 1.96*se
       ci.ub <- obs.stat + 1.96*se
