@@ -386,15 +386,28 @@ rdrandinf <- function(Y,R,
 
   if (p==0){
     if (fuzzy.stat=='wald'){
-      message(sprintf('[MEM] p==0, wald: calling ivreg | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
+      message(sprintf('[MEM] p==0, wald: computing IV manually (O(nk) memory) | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
       firststagereg <- lm(Tw ~ Dw)
-      aux <- AER::ivreg(Yw ~ Tw | Dw,weights=kweights)
-      obs.stat <- aux$coefficients["Tw"]
-      k_iv <- length(coef(aux))
-      se <- sqrt(sandwich::vcovHC(aux,type='HC0')['Tw','Tw'] * n.w / (n.w - k_iv))
+      # Manual 2SLS + HC1 SE: avoids AER::ivreg/sandwich::vcovHC which can
+      # allocate an n x n hat matrix (95 GB at n=107949).
+      # For just-identified IV: beta = (Z'WX)^{-1} Z'WY
+      # HC1 V = n/(n-k) * (Z'WX)^{-1} [sum_i w_i^2 Z_i Z_i' e_i^2] (X'WZ)^{-1}
+      w_iv   <- kweights
+      X_iv   <- cbind(1.0, as.numeric(Tw))   # n x 2
+      Z_iv   <- cbind(1.0, as.numeric(Dw))   # n x 2
+      ZtWX_iv  <- crossprod(Z_iv, w_iv * X_iv)
+      beta_iv  <- solve(ZtWX_iv, crossprod(Z_iv, w_iv * as.numeric(Yw)))
+      obs.stat <- beta_iv[2L]
+      e_iv     <- as.numeric(Yw) - X_iv %*% beta_iv
+      B_iv     <- solve(ZtWX_iv)
+      Meat_iv  <- crossprod(Z_iv * (w_iv * as.numeric(e_iv)))
+      k_iv     <- 2L
+      V_HC1_iv <- (n.w / (n.w - k_iv)) * (B_iv %*% Meat_iv %*% t(B_iv))
+      se       <- sqrt(V_HC1_iv[2L, 2L])
+      message(sprintf('[MEM] p==0, wald: IV done | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
       ci.lb <- obs.stat - 1.96*se
       ci.ub <- obs.stat + 1.96*se
-      tstat <- aux$coefficients['Tw']/se
+      tstat <- obs.stat/se
       asy.pval <- as.numeric(2*pnorm(-abs(tstat)))
       asy.power <- as.numeric(1-pnorm(1.96-delta/se)+pnorm(-1.96-delta/se))
     } else {
@@ -427,17 +440,27 @@ rdrandinf <- function(Y,R,
       inter <- Rpoly*Dw
       message(sprintf('[MEM] p>0, wald: inter=%.1fMB ncol=%d | gc_vcells=%.1fMB', object.size(inter)/1e6, ncol(as.matrix(inter)), gc(verbose=FALSE)[2,2]))
       firststagereg <- lm(Tw ~ Dw)
-      message(sprintf('[MEM] p>0, wald: lm done, calling ivreg (n.w=%d ncol_Rpoly=%d) | gc_vcells=%.1fMB', n.w, ncol(as.matrix(Rpoly)), gc(verbose=FALSE)[2,2]))
-      aux <- AER::ivreg(Yw ~ Rpoly + inter + Tw | Rpoly + inter + Dw,weights=kweights)
-      message(sprintf('[MEM] p>0, wald: ivreg done=%.1fMB | gc_vcells=%.1fMB', object.size(aux)/1e6, gc(verbose=FALSE)[2,2]))
-      obs.stat <- aux$coefficients["Tw"]
-      message(sprintf('[MEM] p>0, wald: calling vcovHC (HC0+df correction, avoids hatvalues) | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
-      k_iv <- length(coef(aux))
-      se <- sqrt(sandwich::vcovHC(aux,type='HC0')['Tw','Tw'] * n.w / (n.w - k_iv))
-      message(sprintf('[MEM] p>0, wald: vcovHC done | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
+      message(sprintf('[MEM] p>0, wald: computing IV manually (O(nk) memory, n.w=%d) | gc_vcells=%.1fMB', n.w, gc(verbose=FALSE)[2,2]))
+      # Manual 2SLS + HC1 SE: avoids AER::ivreg/sandwich::vcovHC which can
+      # allocate an n x n hat matrix (95 GB at n=107949).
+      # For just-identified IV: beta = (Z'WX)^{-1} Z'WY
+      # HC1 V = n/(n-k) * (Z'WX)^{-1} [sum_i w_i^2 Z_i Z_i' e_i^2] (X'WZ)^{-1}
+      w_iv   <- kweights
+      X_iv   <- cbind(1.0, as.matrix(Rpoly), as.matrix(inter), as.numeric(Tw))
+      Z_iv   <- cbind(1.0, as.matrix(Rpoly), as.matrix(inter), as.numeric(Dw))
+      ZtWX_iv  <- crossprod(Z_iv, w_iv * X_iv)
+      beta_iv  <- solve(ZtWX_iv, crossprod(Z_iv, w_iv * as.numeric(Yw)))
+      k_iv     <- ncol(X_iv)
+      obs.stat <- beta_iv[k_iv]   # last column = Tw coefficient
+      e_iv     <- as.numeric(Yw) - X_iv %*% beta_iv
+      B_iv     <- solve(ZtWX_iv)
+      Meat_iv  <- crossprod(Z_iv * (w_iv * as.numeric(e_iv)))
+      V_HC1_iv <- (n.w / (n.w - k_iv)) * (B_iv %*% Meat_iv %*% t(B_iv))
+      se       <- sqrt(V_HC1_iv[k_iv, k_iv])
+      message(sprintf('[MEM] p>0, wald: IV done | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
       ci.lb <- obs.stat - 1.96*se
       ci.ub <- obs.stat + 1.96*se
-      tstat <- aux$coefficients['Tw']/se
+      tstat <- obs.stat/se
       asy.pval <- as.numeric(2*pnorm(-abs(tstat)))
       asy.power <- as.numeric(1-pnorm(1.96-delta/se)+pnorm(-1.96-delta/se))
     }
