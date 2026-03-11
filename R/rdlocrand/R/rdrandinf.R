@@ -374,16 +374,19 @@ rdrandinf <- function(Y,R,
   ###############################################################################
 
 
+  message(sprintf('[MEM] calling rdrandinf.model (pvalue=TRUE, statistic=%s) | gc_vcells=%.1fMB', statistic, gc(verbose=FALSE)[2,2]))
   if (is.null(fuzzy)){
     results <- rdrandinf.model(Y.adj.null,Dw,statistic=statistic,pvalue=TRUE,kweights=kweights,delta=delta)
   } else {
     results <- rdrandinf.model(Y.adj.null,Dw,statistic=fuzzy.stat,endogtr=Tw,pvalue=TRUE,kweights=kweights,delta=delta)
   }
+  message(sprintf('[MEM] rdrandinf.model returned | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
 
   obs.stat <- as.numeric(results$statistic)
 
   if (p==0){
     if (fuzzy.stat=='wald'){
+      message(sprintf('[MEM] p==0, wald: calling ivreg | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
       firststagereg <- lm(Tw ~ Dw)
       aux <- AER::ivreg(Yw ~ Tw | Dw,weights=kweights)
       obs.stat <- aux$coefficients["Tw"]
@@ -400,8 +403,11 @@ rdrandinf <- function(Y,R,
 
   } else {
     if (statistic=='diffmeans'|statistic=='ttest'|statistic=='all'){
+      message(sprintf('[MEM] p>0, diffmeans: calling lm (n.w=%d, ncol(Rpoly)=%d) | gc_vcells=%.1fMB', n.w, ncol(Rpoly), gc(verbose=FALSE)[2,2]))
       lfit <- lm(Yw ~ Dw + Rpoly + Dw*Rpoly,weights=kweights)
+      message(sprintf('[MEM] lm done: lfit=%.1fMB | gc_vcells=%.1fMB', object.size(lfit)/1e6, gc(verbose=FALSE)[2,2]))
       se <- sqrt(diag(sandwich::vcovHC(lfit,type='HC2'))['Dw'])
+      message(sprintf('[MEM] vcovHC done | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
       tstat <- lfit$coefficients['Dw']/se
       asy.pval <- as.numeric(2*pnorm(-abs(tstat)))
       asy.power <- as.numeric(1-pnorm(1.96-delta/se)+pnorm(-1.96-delta/se))
@@ -416,6 +422,7 @@ rdrandinf <- function(Y,R,
     }
 
     if (fuzzy.stat=='wald'){
+      message(sprintf('[MEM] p>0, wald: calling ivreg | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
       inter <- Rpoly*Dw
       firststagereg <- lm(Tw ~ Dw)
       aux <- AER::ivreg(Yw ~ Rpoly + inter + Tw | Rpoly + inter + Dw,weights=kweights)
@@ -428,6 +435,7 @@ rdrandinf <- function(Y,R,
       asy.power <- as.numeric(1-pnorm(1.96-delta/se)+pnorm(-1.96-delta/se))
     }
   }
+  message(sprintf('[MEM] observed stats done | gc_vcells=%.1fMB', gc(verbose=FALSE)[2,2]))
 
 
   ###############################################################################

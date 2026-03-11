@@ -212,6 +212,8 @@ rdrandinf.model <- function(Y,D,statistic,pvalue=FALSE,kweights,endogtr,delta=NU
       output <- list(statistic = as.numeric(stat))
   }
 
+  message(sprintf('[MEM] rdrandinf.model returning (statistic=%s, pvalue=%s) | gc_vcells=%.1fMB',
+    statistic, pvalue, gc(verbose=FALSE)[2,2]))
   return(output)
 }
 
