@@ -134,7 +134,9 @@ rdrandinf <- function(Y,R,
 
   randmech <- 'fixed margins'
 
-  Rc.long <- R - cutoff
+  if (is.null(wl) && is.null(wr) && !missing(covariates)) {
+    Rc.long <- R - cutoff
+  }
 
   if (!is.null(fuzzy)){
     statistic <- ''
@@ -152,32 +154,28 @@ rdrandinf <- function(Y,R,
 
   if(is.null(fuzzy)){
     if(is.null(bernoulli)){
-      data <- cbind(Y,R)
-      data <- data[complete.cases(data),]
-      Y <- data[,1]
-      R <- data[,2]
+      keep <- !is.na(Y) & !is.na(R)
+      Y <- Y[keep]
+      R <- R[keep]
     } else{
-      data <- cbind(Y,R,bernoulli)
-      data <- data[complete.cases(data),]
-      Y <- data[,1]
-      R <- data[,2]
-      bernoulli <- data[,3]
+      keep <- !is.na(Y) & !is.na(R) & !is.na(bernoulli)
+      Y <- Y[keep]
+      R <- R[keep]
+      bernoulli <- bernoulli[keep]
     }
   }
   else {
     if(missing(bernoulli)){
-      data <- cbind(Y,R,fuzzy.tr)
-      data <- data[complete.cases(data),]
-      Y <- data[,1]
-      R <- data[,2]
-      fuzzy.tr <- data[,3]
+      keep <- !is.na(Y) & !is.na(R) & !is.na(fuzzy.tr)
+      Y <- Y[keep]
+      R <- R[keep]
+      fuzzy.tr <- fuzzy.tr[keep]
     } else{
-      data <- cbind(Y,R,bernoulli,fuzzy.tr)
-      data <- data[complete.cases(data),]
-      Y <- data[,1]
-      R <- data[,2]
-      bernoulli <- data[,3]
-      fuzzy.tr <- data[,4]
+      keep <- !is.na(Y) & !is.na(R) & !is.na(bernoulli) & !is.na(fuzzy.tr)
+      Y <- Y[keep]
+      R <- R[keep]
+      bernoulli <- bernoulli[keep]
+      fuzzy.tr <- fuzzy.tr[keep]
     }
 
   }
@@ -215,11 +213,8 @@ rdrandinf <- function(Y,R,
   if (is.null(evall) & !is.null(evalr)) stop('evall not specified')
   if (!is.null(d) & !is.null(dscale)) stop('cannot specify both d and dscale')
 
-  Rc <- R - cutoff
-  D <- as.numeric(Rc >= 0)
-
-  n <- length(D)
-  n1 <- sum(D)
+  n <- length(R)
+  n1 <- sum(R >= cutoff)
   n0 <- n - n1
 
   if (seed>0){
@@ -256,27 +251,29 @@ rdrandinf <- function(Y,R,
   ww <-  (round(R,8) >= round(wl,8)) & (round(R,8) <= round(wr,8))
 
   Yw <- Y[ww]
-  Rw <- Rc[ww]
-  Dw <- D[ww]
+  Rw <- R[ww] - cutoff
+  Dw <- as.numeric(Rw >= 0)
 
   if (!is.null(fuzzy)){
     Tw <- fuzzy.tr[ww]
   }
 
   if (is.null(bernoulli)){
-    data <- cbind(Yw,Rw,Dw)
-    data <- data[complete.cases(data),]
-    Yw <- data[,1]
-    Rw <- data[,2]
-    Dw <- data[,3]
+    keep_w <- !is.na(Yw) & !is.na(Rw)
+    if (!all(keep_w)){
+      Yw <- Yw[keep_w]
+      Rw <- Rw[keep_w]
+      Dw <- Dw[keep_w]
+    }
   } else {
     Bew <- bernoulli[ww]
-    data <- cbind(Yw,Rw,Dw,Bew)
-    data <- data[complete.cases(data),]
-    Yw <- data[,1]
-    Rw <- data[,2]
-    Dw <- data[,3]
-    Bew <- data[,4]
+    keep_w <- !is.na(Yw) & !is.na(Rw) & !is.na(Bew)
+    if (!all(keep_w)){
+      Yw <- Yw[keep_w]
+      Rw <- Rw[keep_w]
+      Dw <- Dw[keep_w]
+      Bew <- Bew[keep_w]
+    }
   }
 
 
