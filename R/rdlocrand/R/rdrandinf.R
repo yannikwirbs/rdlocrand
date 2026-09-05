@@ -134,7 +134,9 @@ rdrandinf <- function(Y,R,
 
   randmech <- 'fixed margins'
 
-  Rc.long <- R - cutoff
+  if (is.null(wl) && is.null(wr) && !missing(covariates)) {
+    Rc.long <- R - cutoff
+  }
 
   if (!is.null(fuzzy)){
     statistic <- ''
@@ -152,32 +154,28 @@ rdrandinf <- function(Y,R,
 
   if(is.null(fuzzy)){
     if(is.null(bernoulli)){
-      data <- cbind(Y,R)
-      data <- data[complete.cases(data),]
-      Y <- data[,1]
-      R <- data[,2]
+      keep <- !is.na(Y) & !is.na(R)
+      Y <- Y[keep]
+      R <- R[keep]
     } else{
-      data <- cbind(Y,R,bernoulli)
-      data <- data[complete.cases(data),]
-      Y <- data[,1]
-      R <- data[,2]
-      bernoulli <- data[,3]
+      keep <- !is.na(Y) & !is.na(R) & !is.na(bernoulli)
+      Y <- Y[keep]
+      R <- R[keep]
+      bernoulli <- bernoulli[keep]
     }
   }
   else {
     if(missing(bernoulli)){
-      data <- cbind(Y,R,fuzzy.tr)
-      data <- data[complete.cases(data),]
-      Y <- data[,1]
-      R <- data[,2]
-      fuzzy.tr <- data[,3]
+      keep <- !is.na(Y) & !is.na(R) & !is.na(fuzzy.tr)
+      Y <- Y[keep]
+      R <- R[keep]
+      fuzzy.tr <- fuzzy.tr[keep]
     } else{
-      data <- cbind(Y,R,bernoulli,fuzzy.tr)
-      data <- data[complete.cases(data),]
-      Y <- data[,1]
-      R <- data[,2]
-      bernoulli <- data[,3]
-      fuzzy.tr <- data[,4]
+      keep <- !is.na(Y) & !is.na(R) & !is.na(bernoulli) & !is.na(fuzzy.tr)
+      Y <- Y[keep]
+      R <- R[keep]
+      bernoulli <- bernoulli[keep]
+      fuzzy.tr <- fuzzy.tr[keep]
     }
 
   }
@@ -215,11 +213,8 @@ rdrandinf <- function(Y,R,
   if (is.null(evall) & !is.null(evalr)) stop('evall not specified')
   if (!is.null(d) & !is.null(dscale)) stop('cannot specify both d and dscale')
 
-  Rc <- R - cutoff
-  D <- as.numeric(Rc >= 0)
-
-  n <- length(D)
-  n1 <- sum(D)
+  n <- length(R)
+  n1 <- sum(R >= cutoff)
   n0 <- n - n1
 
   if (seed>0){
@@ -250,33 +245,34 @@ rdrandinf <- function(Y,R,
   }
   if (quietly==FALSE) cat(paste0('\nSelected window = [',round(wl,3),';',round(wr,3),'] \n'))
 
-
   if (!is.null(evall)&!is.null(evalr)){if (evall<wl | evalr>wr){stop('evall and evalr need to be inside window')}}
 
   ww <-  (round(R,8) >= round(wl,8)) & (round(R,8) <= round(wr,8))
 
   Yw <- Y[ww]
-  Rw <- Rc[ww]
-  Dw <- D[ww]
+  Rw <- R[ww] - cutoff
+  Dw <- as.numeric(Rw >= 0)
 
   if (!is.null(fuzzy)){
     Tw <- fuzzy.tr[ww]
   }
 
   if (is.null(bernoulli)){
-    data <- cbind(Yw,Rw,Dw)
-    data <- data[complete.cases(data),]
-    Yw <- data[,1]
-    Rw <- data[,2]
-    Dw <- data[,3]
+    keep_w <- !is.na(Yw) & !is.na(Rw)
+    if (!all(keep_w)){
+      Yw <- Yw[keep_w]
+      Rw <- Rw[keep_w]
+      Dw <- Dw[keep_w]
+    }
   } else {
     Bew <- bernoulli[ww]
-    data <- cbind(Yw,Rw,Dw,Bew)
-    data <- data[complete.cases(data),]
-    Yw <- data[,1]
-    Rw <- data[,2]
-    Dw <- data[,3]
-    Bew <- data[,4]
+    keep_w <- !is.na(Yw) & !is.na(Rw) & !is.na(Bew)
+    if (!all(keep_w)){
+      Yw <- Yw[keep_w]
+      Rw <- Rw[keep_w]
+      Dw <- Dw[keep_w]
+      Bew <- Bew[keep_w]
+    }
   }
 
 
@@ -366,18 +362,30 @@ rdrandinf <- function(Y,R,
   } else {
     results <- rdrandinf.model(Y.adj.null,Dw,statistic=fuzzy.stat,endogtr=Tw,pvalue=TRUE,kweights=kweights,delta=delta)
   }
-
   obs.stat <- as.numeric(results$statistic)
 
   if (p==0){
     if (fuzzy.stat=='wald'){
       firststagereg <- lm(Tw ~ Dw)
-      aux <- AER::ivreg(Yw ~ Tw | Dw,weights=kweights)
-      obs.stat <- aux$coefficients["Tw"]
-      se <- sqrt(diag(sandwich::vcovHC(aux,type='HC1'))['Tw'])
+      # Manual 2SLS + HC1 SE: avoids AER::ivreg/sandwich::vcovHC which can
+      # allocate an n x n hat matrix (95 GB at n=107949).
+      # For just-identified IV: beta = (Z'WX)^{-1} Z'WY
+      # HC1 V = n/(n-k) * (Z'WX)^{-1} [sum_i w_i^2 Z_i Z_i' e_i^2] (X'WZ)^{-1}
+      w_iv   <- kweights
+      X_iv   <- cbind(1.0, as.numeric(Tw))   # n x 2
+      Z_iv   <- cbind(1.0, as.numeric(Dw))   # n x 2
+      ZtWX_iv  <- crossprod(Z_iv, w_iv * X_iv)
+      beta_iv  <- solve(ZtWX_iv, crossprod(Z_iv, w_iv * as.numeric(Yw)))
+      obs.stat <- beta_iv[2L]
+      e_iv     <- as.numeric(Yw) - X_iv %*% beta_iv
+      B_iv     <- solve(ZtWX_iv)
+      Meat_iv  <- crossprod(Z_iv * (w_iv * as.numeric(e_iv)))
+      k_iv     <- 2L
+      V_HC1_iv <- (n.w / (n.w - k_iv)) * (B_iv %*% Meat_iv %*% t(B_iv))
+      se       <- sqrt(V_HC1_iv[2L, 2L])
       ci.lb <- obs.stat - 1.96*se
       ci.ub <- obs.stat + 1.96*se
-      tstat <- aux$coefficients['Tw']/se
+      tstat <- obs.stat/se
       asy.pval <- as.numeric(2*pnorm(-abs(tstat)))
       asy.power <- as.numeric(1-pnorm(1.96-delta/se)+pnorm(-1.96-delta/se))
     } else {
@@ -405,17 +413,29 @@ rdrandinf <- function(Y,R,
     if (fuzzy.stat=='wald'){
       inter <- Rpoly*Dw
       firststagereg <- lm(Tw ~ Dw)
-      aux <- AER::ivreg(Yw ~ Rpoly + inter + Tw | Rpoly + inter + Dw,weights=kweights)
-      obs.stat <- aux$coefficients["Tw"]
-      se <- sqrt(diag(sandwich::vcovHC(aux,type='HC1'))['Tw'])
+      # Manual 2SLS + HC1 SE: avoids AER::ivreg/sandwich::vcovHC which can
+      # allocate an n x n hat matrix (95 GB at n=107949).
+      # For just-identified IV: beta = (Z'WX)^{-1} Z'WY
+      # HC1 V = n/(n-k) * (Z'WX)^{-1} [sum_i w_i^2 Z_i Z_i' e_i^2] (X'WZ)^{-1}
+      w_iv   <- kweights
+      X_iv   <- cbind(1.0, as.matrix(Rpoly), as.matrix(inter), as.numeric(Tw))
+      Z_iv   <- cbind(1.0, as.matrix(Rpoly), as.matrix(inter), as.numeric(Dw))
+      ZtWX_iv  <- crossprod(Z_iv, w_iv * X_iv)
+      beta_iv  <- solve(ZtWX_iv, crossprod(Z_iv, w_iv * as.numeric(Yw)))
+      k_iv     <- ncol(X_iv)
+      obs.stat <- beta_iv[k_iv]   # last column = Tw coefficient
+      e_iv     <- as.numeric(Yw) - X_iv %*% beta_iv
+      B_iv     <- solve(ZtWX_iv)
+      Meat_iv  <- crossprod(Z_iv * (w_iv * as.numeric(e_iv)))
+      V_HC1_iv <- (n.w / (n.w - k_iv)) * (B_iv %*% Meat_iv %*% t(B_iv))
+      se       <- sqrt(V_HC1_iv[k_iv, k_iv])
       ci.lb <- obs.stat - 1.96*se
       ci.ub <- obs.stat + 1.96*se
-      tstat <- aux$coefficients['Tw']/se
+      tstat <- obs.stat/se
       asy.pval <- as.numeric(2*pnorm(-abs(tstat)))
       asy.power <- as.numeric(1-pnorm(1.96-delta/se)+pnorm(-1.96-delta/se))
     }
   }
-
 
   ###############################################################################
   # Randomization-based inference
@@ -508,7 +528,6 @@ rdrandinf <- function(Y,R,
       }
 
     }
-
     if(quietly==FALSE) cat('Randomization-based test complete. \n')
 
     if (statistic == 'all'){
@@ -531,6 +550,7 @@ rdrandinf <- function(Y,R,
     ci.alpha <- ci[1]
     if (fuzzy.stat!='wald'){
 
+      Rc <- R - cutoff
       wr_c <- wr - cutoff
       wl_c <- wl - cutoff
 

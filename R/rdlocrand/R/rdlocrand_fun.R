@@ -15,75 +15,135 @@ rdrandinf.model <- function(Y,D,statistic,pvalue=FALSE,kweights,endogtr,delta=NU
   n1 <- sum(D)
   n0 <- n - n1
 
-  Y <- as.matrix(Y)
+  # When Y is a plain vector (the common case from rdrandinf's permutation loop)
+  # we take allocation-free paths that avoid as.matrix() copies and lm() objects.
+  # When Y is already a matrix (rdwinselect covariate balance testing), we use
+  # the original column-wise paths.
+  y_is_vec <- !is.matrix(Y)
 
   if (statistic=='ttest'|statistic=='diffmeans'){
     if (all(kweights==1)){
-      Y1 <- t(Y[D==1,])
-      Y0 <- t(Y[D==0,])
-      M1 <- rowMeans(Y1)
-      M0 <- rowMeans(Y0)
-      stat <- M1-M0
-      if (pvalue==TRUE){
-        V1 <- rowMeans((Y1-rowMeans(Y1))^2)/(n1-1)
-        V0 <- rowMeans((Y0-rowMeans(Y0))^2)/(n0-1)
-        se <- sqrt(V1+V0)
-        t.stat <- (M1-M0)/se
-        asy.pval <- 2*pnorm(-abs(t.stat))
-        if (!is.null(delta)){
-          asy.power <- 1-pnorm(1.96-delta/se)+pnorm(-1.96-delta/se)
-        } else{asy.power = NA}
+      if (y_is_vec) {
+        stat <- mean(Y[D==1]) - mean(Y[D==0])
+        if (pvalue==TRUE){
+          V1 <- var(Y[D==1]) / n1
+          V0 <- var(Y[D==0]) / n0
+          se <- sqrt(V1+V0)
+          t.stat <- stat/se
+          asy.pval <- 2*pnorm(-abs(t.stat))
+          if (!is.null(delta)){
+            asy.power <- 1-pnorm(1.96-delta/se)+pnorm(-1.96-delta/se)
+          } else{asy.power = NA}
+        }
+      } else {
+        Y1 <- t(Y[D==1,])
+        Y0 <- t(Y[D==0,])
+        M1 <- rowMeans(Y1)
+        M0 <- rowMeans(Y0)
+        stat <- M1-M0
+        if (pvalue==TRUE){
+          V1 <- rowMeans((Y1-rowMeans(Y1))^2)/(n1-1)
+          V0 <- rowMeans((Y0-rowMeans(Y0))^2)/(n0-1)
+          se <- sqrt(V1+V0)
+          t.stat <- (M1-M0)/se
+          asy.pval <- 2*pnorm(-abs(t.stat))
+          if (!is.null(delta)){
+            asy.power <- 1-pnorm(1.96-delta/se)+pnorm(-1.96-delta/se)
+          } else{asy.power = NA}
+        }
       }
     } else {
-      stat <- numeric(ncol(Y))
-      asy.pval <- numeric(ncol(Y))
-      for (k in 1:ncol(Y)){
-        lm.aux <- lm(Y[,k] ~ D,weights=kweights)
-        stat[k] <- lm.aux$coefficient['D']
+      if (y_is_vec) {
+        # Fast path: weighted difference in means avoids building an lm object
+        w1 <- kweights[D==1]; w0 <- kweights[D==0]
+        stat <- weighted.mean(Y[D==1], w1) - weighted.mean(Y[D==0], w0)
         if (pvalue==TRUE){
+          lm.aux <- lm(Y ~ D, weights=kweights)
           se <- sqrt(sandwich::vcovHC(lm.aux,type='HC2')['D','D'])
-          t.stat <- stat[k]/se
-          asy.pval[k] <- 2*pnorm(-abs(t.stat))
+          t.stat <- stat/se
+          asy.pval <- 2*pnorm(-abs(t.stat))
           if (!is.null(delta)){
             asy.power <- 1-pnorm(1.96-delta/se)+pnorm(-1.96-delta/se)
           } else {asy.power = NA}
+        }
+      } else {
+        stat <- numeric(ncol(Y))
+        asy.pval <- numeric(ncol(Y))
+        for (k in 1:ncol(Y)){
+          lm.aux <- lm(Y[,k] ~ D,weights=kweights)
+          stat[k] <- lm.aux$coefficient['D']
+          if (pvalue==TRUE){
+            se <- sqrt(sandwich::vcovHC(lm.aux,type='HC2')['D','D'])
+            t.stat <- stat[k]/se
+            asy.pval[k] <- 2*pnorm(-abs(t.stat))
+            if (!is.null(delta)){
+              asy.power <- 1-pnorm(1.96-delta/se)+pnorm(-1.96-delta/se)
+            } else {asy.power = NA}
+          }
         }
       }
     }
   }
 
   if (statistic=='ksmirnov'){
-    stat <- NULL
-    asy.pval <- NULL
-    for (k in 1:ncol(Y)){
-      aux.ks <- ks.test(Y[D==0,k],Y[D==1,k])
-      stat <- c(stat,aux.ks$statistic)
+    if (y_is_vec) {
+      aux.ks <- ks.test(Y[D==0], Y[D==1])
+      stat <- aux.ks$statistic
       if (pvalue==TRUE){
-        asy.pval <- c(asy.pval,aux.ks$p.value)
+        asy.pval <- aux.ks$p.value
         asy.power <- NA
+      }
+    } else {
+      stat <- NULL
+      asy.pval <- NULL
+      for (k in 1:ncol(Y)){
+        aux.ks <- ks.test(Y[D==0,k],Y[D==1,k])
+        stat <- c(stat,aux.ks$statistic)
+        if (pvalue==TRUE){
+          asy.pval <- c(asy.pval,aux.ks$p.value)
+          asy.power <- NA
+        }
       }
     }
   }
 
   if (statistic=='ranksum'){
-    stat <- NULL
-    asy.pval <- NULL
-    for (k in 1:ncol(Y)){
-      Ustat <- wilcox.test(Y[D==0,k],Y[D==1,k])$statistic
+    if (y_is_vec) {
+      Ustat <- wilcox.test(Y[D==0], Y[D==1])$statistic
       Tstat <- Ustat + n0*(n0+1)/2
-      ri <- rank(Y[,k])
+      ri <- rank(Y)
       s2 <- var(ri)
       ETstat <- n0*(n+1)/2
       VTstat <- n0*n1*s2/n
       se <- sqrt(VTstat)
-      stat <- c(stat,(Tstat-ETstat)/se)
-    }
-    if (pvalue==TRUE){
-      asy.pval <- 2*pnorm(-abs(stat))
-      sigma <- sd(Y)
-      if (!is.null(delta)){
-        asy.power <- pnorm(sqrt(3*n0*n1/((n0+n1+1)*pi))*delta/sigma-1.96)
-      } else {asy.power = NA}
+      stat <- (Tstat-ETstat)/se
+      if (pvalue==TRUE){
+        asy.pval <- 2*pnorm(-abs(stat))
+        sigma <- sd(Y)
+        if (!is.null(delta)){
+          asy.power <- pnorm(sqrt(3*n0*n1/((n0+n1+1)*pi))*delta/sigma-1.96)
+        } else {asy.power = NA}
+      }
+    } else {
+      stat <- NULL
+      asy.pval <- NULL
+      for (k in 1:ncol(Y)){
+        Ustat <- wilcox.test(Y[D==0,k],Y[D==1,k])$statistic
+        Tstat <- Ustat + n0*(n0+1)/2
+        ri <- rank(Y[,k])
+        s2 <- var(ri)
+        ETstat <- n0*(n+1)/2
+        VTstat <- n0*n1*s2/n
+        se <- sqrt(VTstat)
+        stat <- c(stat,(Tstat-ETstat)/se)
+      }
+      if (pvalue==TRUE){
+        asy.pval <- 2*pnorm(-abs(stat))
+        sigma <- sd(Y)
+        if (!is.null(delta)){
+          asy.power <- pnorm(sqrt(3*n0*n1/((n0+n1+1)*pi))*delta/sigma-1.96)
+        } else {asy.power = NA}
+      }
     }
   }
 
